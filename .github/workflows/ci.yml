@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Lets you run this by hand from the Actions tab.
+  workflow_dispatch:
+
+jobs:
+  # The real gate: the offline tests. No network, so this is fast and stable.
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The README claims 3.9+, so prove it on the oldest and newest.
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # No dependencies to install — the project is standard library only.
+      - name: Run tests
+        run: python -m unittest discover -v -p "test_*.py"
+
+      - name: Check the script's help text works
+        run: python edgar_watcher.py --help
+
+  # Informational only: actually calls EDGAR to confirm the live API still
+  # behaves the way the script expects. This talks to a third party, so it
+  # must never block a merge — continue-on-error keeps a red result advisory.
+  live-smoke-test:
+    name: Live EDGAR smoke test (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # --dry-run so no state file is written. A tiny limit keeps the
+      # request count and output small.
+      - name: Fetch real filings
+        env:
+          SEC_USER_AGENT: >-
+            CRO-Filings-Watcher CI
+            (https://github.com/${{ github.repository }})
+        run: python edgar_watcher.py --dry-run --first-run-limit 2

@@ -1,5 +1,7 @@
 # CRO Filings Watcher
 
+[![CI](https://github.com/DBritt5000/CRO-Filings-Watcher/actions/workflows/ci.yml/badge.svg)](https://github.com/DBritt5000/CRO-Filings-Watcher/actions/workflows/ci.yml)
+
 Checks SEC EDGAR for new filings from a handful of clinical research
 organizations and prints a plain-text digest. Re-runs only show what's new.
 
@@ -55,6 +57,19 @@ want to wire it into a cron job.
 | `companies.json` | The watch list — edit this to add or remove companies |
 | `state.json` | Auto-created. Last filing seen per company. Delete to reset. |
 | `test_edgar_watcher.py` | Offline tests (`python3 -m unittest test_edgar_watcher`) |
+| `.github/workflows/ci.yml` | Runs the tests on every push and pull request |
+
+## CI
+
+Two jobs run on GitHub Actions:
+
+- **Tests** — the offline suite on Python 3.9, 3.11, and 3.13. No network, so
+  it's fast and deterministic. This is the job that gates a merge.
+- **Live EDGAR smoke test** — actually calls the API with `--dry-run` to
+  confirm EDGAR still responds the way the script expects. It's marked
+  `continue-on-error`, so a bad day at the SEC (or a rate limit) shows up as
+  a warning rather than blocking a merge. Check it when the API might have
+  changed.
 
 ## Adding a company
 
