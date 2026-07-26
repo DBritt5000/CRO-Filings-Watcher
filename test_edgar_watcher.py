@@ -7,9 +7,12 @@ run instantly and work without an internet connection.
 Run them with:   python3 -m unittest -v test_edgar_watcher
 """
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 
 import edgar_watcher as w
@@ -202,6 +205,60 @@ class TestEndToEnd(unittest.TestCase):
             state_path = Path(tmp) / "state.json"
             w.main(["--state", str(state_path), "--dry-run"])
             self.assertFalse(state_path.exists())
+
+    def test_http_403_explains_the_user_agent_requirement(self):
+        # EDGAR answers 403 when the User-Agent carries no contact email.
+        # The digest should say so rather than just printing the code.
+        def raise_403(cik, ua):
+            raise urllib.error.HTTPError(
+                url="https://data.sec.gov/", code=403, msg="Forbidden",
+                hdrs=None, fp=None)
+
+        w.fetch_submissions = raise_403
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                exit_code = w.main(["--state", str(state_path)])
+
+        self.assertEqual(exit_code, 1)  # fetch failures are reported as failure
+        self.assertIn("HTTP 403", buffer.getvalue())
+        self.assertIn("SEC_USER_AGENT", buffer.getvalue())
+
+    def test_http_404_points_at_the_cik(self):
+        def raise_404(cik, ua):
+            raise urllib.error.HTTPError(
+                url="https://data.sec.gov/", code=404, msg="Not Found",
+                hdrs=None, fp=None)
+
+        w.fetch_submissions = raise_404
+        with tempfile.TemporaryDirectory() as tmp:
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                w.main(["--state", str(Path(tmp) / "state.json")])
+        self.assertIn("is CIK 0001478242 correct?", buffer.getvalue())
+
+    def test_one_company_failing_does_not_stop_the_others(self):
+        calls = {"n": 0}
+
+        def fail_first_only(cik, ua):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.HTTPError(
+                    url="https://data.sec.gov/", code=500, msg="Server Error",
+                    hdrs=None, fp=None)
+            return SAMPLE_PAYLOAD
+
+        w.fetch_submissions = fail_first_only
+        with tempfile.TemporaryDirectory() as tmp:
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                w.main(["--state", str(Path(tmp) / "state.json")])
+
+        output = buffer.getvalue()
+        self.assertIn("HTTP 500", output)
+        self.assertEqual(calls["n"], 5)  # all five were still attempted
+        self.assertIn("Thermo Fisher Scientific Inc. (TMO): 5 new filings", output)
 
     def test_filtered_run_still_records_the_newest_filing(self):
         # A --forms run must not make skipped filings look new on the next run.

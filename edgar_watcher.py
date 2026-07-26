@@ -304,7 +304,18 @@ def main(argv: list[str] | None = None) -> int:
         try:
             payload = fetch_submissions(cik, user_agent)
         except urllib.error.HTTPError as exc:
-            results.append({"company": company, "filings": [], "error": f"HTTP {exc.code} from EDGAR"})
+            message = f"HTTP {exc.code} from EDGAR"
+            if exc.code == 403:
+                # By far the most common cause, and not obvious from the
+                # status code alone.
+                message += (" - EDGAR rejects requests whose User-Agent has no"
+                            " contact email. Set SEC_USER_AGENT, e.g."
+                            " 'Jane Doe jane@example.org'.")
+            elif exc.code == 404:
+                message += f" - is CIK {cik} correct?"
+            elif exc.code == 429:
+                message += " - rate limited; wait a minute and try again."
+            results.append({"company": company, "filings": [], "error": message})
             had_error = True
             continue
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:

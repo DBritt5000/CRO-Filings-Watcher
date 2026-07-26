@@ -47,9 +47,12 @@ jobs:
 
       # --dry-run so no state file is written. A tiny limit keeps the
       # request count and output small.
+      # EDGAR returns 403 unless the User-Agent carries a contact email, so a
+      # bare project name or URL is not enough. Override this with a
+      # repository secret named SEC_USER_AGENT to use a real address.
       - name: Fetch real filings
         env:
-          SEC_USER_AGENT: >-
-            CRO-Filings-Watcher CI
-            (https://github.com/${{ github.repository }})
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT ||
+            format('{0} CI {1}@users.noreply.github.com',
+                   github.repository, github.repository_owner) }}
         run: python edgar_watcher.py --dry-run --first-run-limit 2

@@ -22,8 +22,26 @@ name and email once:
 export SEC_USER_AGENT="Your Name your.email@example.com"
 ```
 
-(Or edit `DEFAULT_USER_AGENT` near the top of `edgar_watcher.py`.) The script
-still runs without this, but the SEC may throttle or block anonymous traffic.
+(Or edit `DEFAULT_USER_AGENT` near the top of `edgar_watcher.py`.)
+
+**The email address is not optional.** EDGAR answers `HTTP 403` to requests
+whose `User-Agent` has no contact email — a project name or URL alone is
+rejected. This was confirmed against the live API: a CI run using
+`CRO-Filings-Watcher CI (https://github.com/...)` got 403 for all five
+companies. `Your Name you@example.com` works.
+
+## Troubleshooting
+
+| Symptom | Cause |
+| --- | --- |
+| `HTTP 403 from EDGAR` | `User-Agent` has no contact email. Set `SEC_USER_AGENT`. |
+| `HTTP 404 from EDGAR` | That CIK doesn't exist — check `companies.json`. |
+| `HTTP 429 from EDGAR` | Rate limited. Wait a minute. |
+| Digest shows nothing new | Expected. Delete `state.json`, or use `--all`, to see recent filings again. |
+| ICON plc never appears | You're filtering with `--forms` and left out `20-F`/`6-K`. See the note below. |
+
+A failed company is reported on its own line in the digest; the run continues
+for the others and exits with status 1.
 
 ## Usage
 
