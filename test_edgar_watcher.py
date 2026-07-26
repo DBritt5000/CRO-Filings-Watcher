@@ -10,6 +10,7 @@ Run them with:   python3 -m unittest -v test_edgar_watcher
 import contextlib
 import io
 import json
+import smtplib
 import tempfile
 import unittest
 import urllib.error
@@ -270,6 +271,100 @@ class TestEndToEnd(unittest.TestCase):
             saved = json.loads(state_path.read_text())["companies"]
             self.assertEqual(saved["0001478242"]["last_accession"],
                              "0001478242-25-000042")
+
+
+class TestEmailWiring(unittest.TestCase):
+    """The --email flag, with the SMTP layer stubbed out."""
+
+    def setUp(self):
+        self.real_fetch = w.fetch_submissions
+        self.real_send = w.emailer.send_digest
+        self.real_load = w.emailer.load_email_config
+        w.fetch_submissions = lambda cik, ua: SAMPLE_PAYLOAD
+        w.REQUEST_DELAY_SECONDS = 0
+        self.sent = []
+        w.emailer.send_digest = lambda cfg, subject, body: self.sent.append((subject, body))
+        w.emailer.load_email_config = lambda: w.emailer.EmailConfig(
+            host="smtp.example.com", sender="me@example.com",
+            recipients=["you@example.com"])
+
+    def tearDown(self):
+        w.fetch_submissions = self.real_fetch
+        w.emailer.send_digest = self.real_send
+        w.emailer.load_email_config = self.real_load
+
+    def _run(self, extra_args):
+        with tempfile.TemporaryDirectory() as tmp:
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = w.main(["--state", str(Path(tmp) / "state.json")] + extra_args)
+        return code, buffer.getvalue()
+
+    def test_new_filings_are_emailed_with_a_useful_subject(self):
+        code, output = self._run(["--email"])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.sent), 1)
+        subject, body = self.sent[0]
+        self.assertIn("25 new filings", subject)  # 5 companies x 5 filings
+        self.assertIn("SEC EDGAR FILINGS DIGEST", body)
+        self.assertIn("Emailed to you@example.com", output)
+
+    def test_nothing_new_sends_no_email_by_default(self):
+        # A daily cron shouldn't mail "nothing new" every morning.
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            with contextlib.redirect_stdout(io.StringIO()):
+                w.main(["--state", str(state_path)])          # first run, saves state
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    code = w.main(["--state", str(state_path), "--email"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.sent, [])
+        self.assertIn("nothing new, so no email sent", buffer.getvalue())
+
+    def test_email_always_sends_even_with_nothing_new(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            with contextlib.redirect_stdout(io.StringIO()):
+                w.main(["--state", str(state_path)])
+                w.main(["--state", str(state_path), "--email", "--email-always"])
+
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0][0], "SEC filings: nothing new")
+
+    def test_missing_configuration_fails_the_run_but_keeps_the_digest(self):
+        def unconfigured():
+            raise w.emailer.EmailConfigError("missing SMTP_HOST, EMAIL_TO")
+
+        w.emailer.load_email_config = unconfigured
+        code, output = self._run(["--email"])
+
+        self.assertEqual(code, 1)                          # reported as a failure
+        self.assertIn("SEC EDGAR FILINGS DIGEST", output)  # digest still printed
+        self.assertEqual(self.sent, [])
+
+    def test_smtp_failure_does_not_lose_the_run(self):
+        # The state file must still advance, or a flaky mail server would
+        # make the same filings re-report forever.
+        def explode(cfg, subject, body):
+            raise smtplib.SMTPAuthenticationError(535, b"bad credentials")
+
+        w.emailer.send_digest = explode
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = w.main(["--state", str(state_path), "--email"])
+            saved = json.loads(state_path.read_text())["companies"]
+
+        self.assertEqual(code, 1)
+        self.assertEqual(saved["0001478242"]["last_accession"],
+                         "0001478242-25-000042")
+
+    def test_no_email_flag_means_no_email(self):
+        code, _ = self._run([])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.sent, [])
 
 
 if __name__ == "__main__":

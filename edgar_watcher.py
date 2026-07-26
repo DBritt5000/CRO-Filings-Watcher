@@ -22,11 +22,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import smtplib
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+import emailer
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -271,6 +274,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="print the digest but do not update the state file")
     parser.add_argument("--forms", default="", metavar="LIST",
                         help="only report these form types, e.g. --forms 8-K,10-Q")
+    parser.add_argument("--email", action="store_true",
+                        help="also email the digest (configured via environment variables)")
+    parser.add_argument("--email-always", action="store_true",
+                        help="with --email, send even when there are no new filings")
     return parser.parse_args(argv)
 
 
@@ -338,7 +345,11 @@ def main(argv: list[str] | None = None) -> int:
                 "last_filing_date": filings[0]["filing_date"],
             }
 
-    print(format_digest(results, first_run_companies))
+    digest = format_digest(results, first_run_companies)
+    print(digest)
+
+    if args.email and not send_email_digest(results, digest, args.email_always):
+        had_error = True
 
     if args.dry_run:
         print("\n(dry run: state file not updated)")
@@ -346,6 +357,38 @@ def main(argv: list[str] | None = None) -> int:
         save_state(args.state, new_state)
 
     return 1 if had_error else 0
+
+
+def send_email_digest(results: list[dict], digest: str, always: bool) -> bool:
+    """Email the digest. Returns False if something went wrong.
+
+    A failure here is reported but never discards the digest: it has already
+    been printed, and on a non-dry run the state file still advances. Losing
+    the run because the mail server was down would be worse than a missed
+    email.
+    """
+    new_count = sum(len(r["filings"]) for r in results)
+    companies = [r["company"]["name"] for r in results if r["filings"]]
+
+    if not new_count and not always:
+        print("\n(nothing new, so no email sent; use --email-always to send anyway)")
+        return True
+
+    try:
+        config = emailer.load_email_config()
+    except emailer.EmailConfigError as exc:
+        print(f"\nEmail not sent: {exc}", file=sys.stderr)
+        return False
+
+    subject = emailer.build_subject(new_count, companies)
+    try:
+        emailer.send_digest(config, subject, digest)
+    except (OSError, smtplib.SMTPException) as exc:
+        print(f"\nEmail not sent: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return False
+
+    print(f"\nEmailed to {', '.join(config.recipients)}")
+    return True
 
 
 if __name__ == "__main__":

@@ -67,18 +67,67 @@ Options:
 | `--forms 8-K,10-Q` | Only report these form types |
 | `--state PATH` | Use a different state file |
 | `--companies PATH` | Use a different company list |
+| `--email` | Also email the digest (see below) |
+| `--email-always` | With `--email`, send even when there's nothing new |
 
-Exit code is `0` on success, `1` if any company failed to fetch. Handy if you
-want to wire it into a cron job.
+Exit code is `0` on success, `1` if any company failed to fetch or the email
+couldn't be sent. Handy if you want to wire it into a cron job.
+
+## Email delivery
+
+The digest always prints to the terminal. Add `--email` to also send it.
+
+Configuration comes from environment variables — never a file in this
+repository, so a password can't be committed by accident:
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `SMTP_HOST` | yes | e.g. `smtp.gmail.com` |
+| `EMAIL_TO` | yes | one address, or several separated by commas |
+| `SMTP_PORT` | no | default `587` |
+| `SMTP_USERNAME` | no | omit for a relay that needs no login |
+| `SMTP_PASSWORD` | no | omit for a relay that needs no login |
+| `EMAIL_FROM` | no | defaults to `SMTP_USERNAME` |
+| `SMTP_STARTTLS` | no | set to `0` for a plaintext relay on localhost |
+
+Port `465` uses implicit TLS; any other port uses STARTTLS.
+
+### Gmail
+
+Gmail rejects your normal password. Create an
+[App Password](https://myaccount.google.com/apppasswords) (requires 2-Step
+Verification) and use that instead:
+
+```sh
+export SMTP_HOST=smtp.gmail.com
+export SMTP_PORT=587
+export SMTP_USERNAME=you@gmail.com
+export SMTP_PASSWORD=abcdefghijklmnop   # the 16-character app password
+export EMAIL_TO=you@gmail.com
+
+python3 edgar_watcher.py --email
+```
+
+### Two behaviours worth knowing
+
+**Nothing new means no email.** A daily cron that mails "no new filings" every
+morning is a daily message you learn to ignore, and then you miss the one that
+matters. Pass `--email-always` if you'd rather have the heartbeat.
+
+**A failed send never costs you the run.** The digest has already printed, and
+the state file still advances. If email failure rolled back the run, a flaky
+mail server would make the same filings re-report forever. You get a non-zero
+exit code, so cron can still tell you something went wrong.
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
 | `edgar_watcher.py` | The script |
+| `emailer.py` | SMTP delivery, used only when `--email` is passed |
 | `companies.json` | The watch list — edit this to add or remove companies |
 | `state.json` | Auto-created. Last filing seen per company. Delete to reset. |
-| `test_edgar_watcher.py` | Offline tests (`python3 -m unittest test_edgar_watcher`) |
+| `test_edgar_watcher.py`, `test_emailer.py` | Offline tests (`python3 -m unittest discover`) |
 | `.github/workflows/ci.yml` | Runs the tests on every push and pull request |
 
 ## CI
@@ -142,6 +191,26 @@ Once a day on a Mac or Linux box, via `crontab -e`:
 ```
 0 8 * * * cd /path/to/CRO-Filings-Watcher && SEC_USER_AGENT="Your Name you@example.com" /usr/bin/python3 edgar_watcher.py >> digest.log 2>&1
 ```
+
+Cron doesn't read your shell profile, so exported variables won't be visible
+to it. Put them in an env file that only you can read, and source it:
+
+```sh
+cat > ~/.edgar-watcher.env <<'EOF'
+export SEC_USER_AGENT="Your Name you@example.com"
+export SMTP_HOST=smtp.gmail.com
+export SMTP_USERNAME=you@gmail.com
+export SMTP_PASSWORD=abcdefghijklmnop
+export EMAIL_TO=you@gmail.com
+EOF
+chmod 600 ~/.edgar-watcher.env
+```
+
+```
+0 8 * * * . $HOME/.edgar-watcher.env && cd /path/to/CRO-Filings-Watcher && /usr/bin/python3 edgar_watcher.py --email >> digest.log 2>&1
+```
+
+`chmod 600` matters — the file holds your app password.
 
 ## Notes
 
