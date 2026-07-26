@@ -103,6 +103,16 @@ Once a day on a Mac or Linux box, via `crontab -e`:
 - Rate limiting: the SEC allows up to 10 requests per second. The script waits
   0.2s between companies, well inside that.
 - Insider transactions (Form 3/4/5) are frequent and will dominate a digest.
-  Use `--forms 8-K,10-Q,10-K` if you only want material corporate events.
-- Verify the CIKs in `companies.json` against EDGAR the first time you run
-  this. A wrong CIK isn't an error — it just quietly watches the wrong company.
+  To see only material corporate events, use:
+
+  ```sh
+  python3 edgar_watcher.py --forms 8-K,10-Q,10-K,20-F,6-K
+  ```
+
+  Include `20-F` and `6-K`, not just the domestic forms. **ICON plc is an
+  Irish foreign private issuer and files 20-F and 6-K instead of
+  10-K/10-Q/8-K** — a filter of `8-K,10-Q,10-K` would silently drop ICON from
+  every digest. The same applies to any non-US filer you add later.
+- The CIKs in `companies.json` were verified against EDGAR archive paths in
+  July 2026. If you add a company, double-check its CIK: a wrong one isn't an
+  error, it just quietly watches the wrong company.

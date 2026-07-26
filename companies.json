@@ -4,11 +4,13 @@
     "'cik' is the SEC's permanent numeric ID for a filer (Central Index Key).",
     "You can look one up at https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany",
     "or search the full list at https://www.sec.gov/files/company_tickers.json",
-    "Keys starting with '_' are ignored by the script."
+    "Keys starting with '_' are ignored by the script.",
+    "The CIKs below were verified against EDGAR archive paths in July 2026."
   ],
   "companies": [
     { "name": "IQVIA Holdings Inc.",           "ticker": "IQV",  "cik": "0001478242" },
-    { "name": "ICON plc",                      "ticker": "ICLR", "cik": "0001060955" },
+    { "_note": "Irish foreign private issuer: files 20-F and 6-K, not 10-K/10-Q/8-K.",
+      "name": "ICON plc",                      "ticker": "ICLR", "cik": "0001060955" },
     { "name": "Medpace Holdings, Inc.",        "ticker": "MEDP", "cik": "0001668397" },
     { "name": "Fortrea Holdings Inc.",         "ticker": "FTRE", "cik": "0001965040" },
     { "name": "Thermo Fisher Scientific Inc.", "ticker": "TMO",  "cik": "0000097745" }
