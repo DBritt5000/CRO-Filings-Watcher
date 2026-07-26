@@ -29,6 +29,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import eight_k_items
 import emailer
 
 # ---------------------------------------------------------------------------
@@ -154,6 +155,7 @@ def extract_filings(payload: dict, cik: str) -> list[dict]:
     dates = recent.get("filingDate") or []
     documents = recent.get("primaryDocument") or []
     descriptions = recent.get("primaryDocDescription") or []
+    items = recent.get("items") or []
 
     filings = []
     for i, accession in enumerate(accessions):
@@ -162,6 +164,8 @@ def extract_filings(payload: dict, cik: str) -> list[dict]:
             "form": forms[i] if i < len(forms) else "",
             "filing_date": dates[i] if i < len(dates) else "",
             "description": descriptions[i] if i < len(descriptions) else "",
+            # Empty for everything except 8-Ks.
+            "items": eight_k_items.parse_items(items[i] if i < len(items) else ""),
             "url": filing_url(cik, accession, documents[i] if i < len(documents) else ""),
         })
     return filings
@@ -204,6 +208,18 @@ def filter_forms(filings: list[dict], wanted: set[str]) -> list[dict]:
     return [f for f in filings if f["form"].upper() in wanted]
 
 
+def filter_items(filings: list[dict], wanted: set[str]) -> list[dict]:
+    """Keep only filings carrying one of the requested 8-K items.
+
+    Because only 8-Ks have items, this necessarily excludes 10-Ks, 10-Qs and
+    everything else. That's the intent: --items is for narrowing 8-K noise
+    down to the events you care about.
+    """
+    if not wanted:
+        return filings
+    return [f for f in filings if eight_k_items.matches(f["items"], wanted)]
+
+
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
@@ -243,6 +259,10 @@ def format_digest(results: list[dict], first_run_companies: list[str]) -> str:
             lines.append("")
             lines.append(f"  Form:  {filing['form']}")
             lines.append(f"  Filed: {filing['filing_date']}")
+            # For an 8-K this is the line that says what actually happened.
+            for index, code in enumerate(filing.get("items") or []):
+                label = "  Item:  " if index == 0 else "         "
+                lines.append(label + eight_k_items.describe(code))
             if filing.get("description"):
                 lines.append(f"  Doc:   {filing['description']}")
             lines.append(f"  URL:   {filing['url']}")
@@ -274,6 +294,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="print the digest but do not update the state file")
     parser.add_argument("--forms", default="", metavar="LIST",
                         help="only report these form types, e.g. --forms 8-K,10-Q")
+    parser.add_argument("--items", default="", metavar="LIST",
+                        help="only report 8-Ks carrying these items, e.g. --items 2.02,5.02"
+                             " (a bare section number like 5 matches every 5.x item)")
     parser.add_argument("--email", action="store_true",
                         help="also email the digest (configured via environment variables)")
     parser.add_argument("--email-always", action="store_true",
@@ -293,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     companies = load_companies(args.companies)
     state = {} if args.all else load_state(args.state)
     wanted_forms = {f.strip().upper() for f in args.forms.split(",") if f.strip()}
+    wanted_items = {i.strip() for i in args.items.split(",") if i.strip()}
 
     results = []
     first_run_companies = []
@@ -332,12 +356,13 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         filings = extract_filings(payload, cik)
-        new_filings = filter_forms(select_new(filings, last_seen, args.first_run_limit),
-                                   wanted_forms)
+        new_filings = select_new(filings, last_seen, args.first_run_limit)
+        new_filings = filter_items(filter_forms(new_filings, wanted_forms), wanted_items)
         results.append({"company": company, "filings": new_filings, "error": None})
 
-        # Record the newest filing we saw, whether or not it matched --forms.
-        # Otherwise a filtered run would make unmatched filings look "new" later.
+        # Record the newest filing we saw, whether or not it matched --forms
+        # or --items. Otherwise a filtered run would make the filings it
+        # skipped look "new" on the next run.
         if filings:
             new_state[cik] = {
                 "company": company["name"],

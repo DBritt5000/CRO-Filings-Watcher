@@ -43,6 +43,8 @@ SAMPLE_PAYLOAD = {
                 "iqv-20250512.htm", "iqv-20241231.htm", "",
             ],
             "primaryDocDescription": ["8-K", "10-Q", "FORM 4", "8-K", "10-K", ""],
+            # Only 8-Ks carry items; everything else is an empty string.
+            "items": ["2.02,9.01", "", "", "5.02", "", ""],
         }
     },
 }
@@ -119,6 +121,42 @@ class TestFilterForms(unittest.TestCase):
     def test_filter_is_case_insensitive(self):
         result = w.filter_forms(filings(), {"8-K"})
         self.assertEqual([f["form"] for f in result], ["8-K", "8-K"])
+
+
+class TestItems(unittest.TestCase):
+    def test_items_are_extracted_only_for_8ks(self):
+        result = filings()
+        self.assertEqual(result[0]["items"], ["2.02", "9.01"])  # 8-K
+        self.assertEqual(result[1]["items"], [])                # 10-Q
+        self.assertEqual(result[3]["items"], ["5.02"])          # 8-K
+
+    def test_filter_by_exact_item(self):
+        result = w.filter_items(filings(), {"5.02"})
+        self.assertEqual([f["accession"] for f in result], ["0001478242-25-000024"])
+
+    def test_filter_by_section(self):
+        result = w.filter_items(filings(), {"2"})
+        self.assertEqual([f["form"] for f in result], ["8-K"])
+
+    def test_filter_excludes_forms_without_items(self):
+        # Only 8-Ks carry items, so a 10-K can never match.
+        forms = [f["form"] for f in w.filter_items(filings(), {"2.02", "5.02"})]
+        self.assertEqual(forms, ["8-K", "8-K"])
+
+    def test_empty_filter_keeps_everything(self):
+        self.assertEqual(len(w.filter_items(filings(), set())), 6)
+
+    def test_digest_shows_what_an_8k_was_about(self):
+        results = [{"company": {"name": "IQVIA Holdings Inc.", "ticker": "IQV"},
+                    "filings": filings()[:1], "error": None}]
+        text = w.format_digest(results, [])
+        self.assertIn("Item:  2.02 Results of Operations and Financial Condition", text)
+        self.assertIn("9.01 Financial Statements and Exhibits", text)
+
+    def test_digest_omits_the_item_line_for_non_8ks(self):
+        results = [{"company": {"name": "IQVIA Holdings Inc.", "ticker": "IQV"},
+                    "filings": filings()[1:2], "error": None}]   # the 10-Q
+        self.assertNotIn("Item:", w.format_digest(results, []))
 
 
 class TestState(unittest.TestCase):
@@ -271,6 +309,21 @@ class TestEndToEnd(unittest.TestCase):
             saved = json.loads(state_path.read_text())["companies"]
             self.assertEqual(saved["0001478242"]["last_accession"],
                              "0001478242-25-000042")
+
+    def test_items_run_still_records_the_newest_filing(self):
+        # Same trap as --forms: state must advance past filings we skipped.
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                w.main(["--state", str(state_path), "--items", "5.02"])
+            saved = json.loads(state_path.read_text())["companies"]
+
+        self.assertEqual(saved["0001478242"]["last_accession"],
+                         "0001478242-25-000042")
+        output = buffer.getvalue()
+        self.assertIn("5.02 Departure or Election of Directors", output)
+        self.assertNotIn("2.02 Results of Operations", output)
 
 
 class TestEmailWiring(unittest.TestCase):

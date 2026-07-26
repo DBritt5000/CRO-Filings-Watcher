@@ -65,6 +65,7 @@ Options:
 | `--dry-run` | Print the digest without updating the state file |
 | `--first-run-limit N` | Show N filings per company on a first run (default 5) |
 | `--forms 8-K,10-Q` | Only report these form types |
+| `--items 2.02,5.02` | Only report 8-Ks carrying these items (see below) |
 | `--state PATH` | Use a different state file |
 | `--companies PATH` | Use a different company list |
 | `--email` | Also email the digest (see below) |
@@ -72,6 +73,53 @@ Options:
 
 Exit code is `0` on success, `1` if any company failed to fetch or the email
 couldn't be sent. Handy if you want to wire it into a cron job.
+
+## 8-K items: what actually happened
+
+An 8-K is the "something happened" filing, and the form type alone tells you
+nothing — quarterly results and a CFO resignation are both 8-Ks. The item code
+is what distinguishes them, so the digest spells it out:
+
+```
+  Form:  8-K
+  Filed: 2025-07-22
+  Item:  2.02 Results of Operations and Financial Condition
+         9.01 Financial Statements and Exhibits
+  URL:   https://www.sec.gov/Archives/edgar/data/1478242/...
+```
+
+`--items` narrows the digest to the events you care about:
+
+```sh
+python3 edgar_watcher.py --items 2.02,5.02   # results and leadership changes
+python3 edgar_watcher.py --items 5           # every 5.x governance item
+```
+
+A bare section number matches every sub-item in it. The codes worth knowing:
+
+| Item | Meaning |
+| --- | --- |
+| `1.01` | Entered a material agreement |
+| `1.05` | Material cybersecurity incident |
+| `2.01` | Completed an acquisition or disposal |
+| `2.02` | Quarterly/annual results announced |
+| `2.06` | Material impairment |
+| `4.01` | Changed auditors |
+| `4.02` | Previously issued financials can't be relied on |
+| `5.02` | Director or officer departed or was appointed |
+| `7.01` | Regulation FD disclosure |
+| `8.01` | Other events (a catch-all) |
+| `9.01` | Financial statements and exhibits |
+
+Two caveats:
+
+- **`--items` excludes everything that isn't an 8-K.** Only 8-Ks carry items,
+  so a filter necessarily drops 10-Ks, 10-Qs and the rest. That's the intent —
+  it's a tool for cutting 8-K noise, not a general filter.
+- **`9.01` is boilerplate.** It's attached to most 8-Ks and means "documents
+  are enclosed", not that anything happened. Don't filter on it.
+
+Codes the SEC adds later will still appear, just without a label.
 
 ## Email delivery
 
@@ -124,6 +172,7 @@ exit code, so cron can still tell you something went wrong.
 | File | Purpose |
 | --- | --- |
 | `edgar_watcher.py` | The script |
+| `eight_k_items.py` | 8-K item code names and filtering |
 | `emailer.py` | SMTP delivery, used only when `--email` is passed |
 | `companies.json` | The watch list — edit this to add or remove companies |
 | `state.json` | Auto-created. Last filing seen per company. Delete to reset. |
