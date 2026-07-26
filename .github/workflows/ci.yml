@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Lets you run this by hand from the Actions tab.
+  workflow_dispatch:
+
+jobs:
+  # The real gate: the offline tests. No network, so this is fast and stable.
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The README claims 3.9+, so prove it on the oldest and newest.
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # No dependencies to install — the project is standard library only.
+      - name: Run tests
+        run: python -m unittest discover -v -p "test_*.py"
+
+      - name: Check the script's help text works
+        run: python edgar_watcher.py --help
+
+  # Calls the real EDGAR API to confirm it still behaves the way the script
+  # expects.
+  #
+  # Manual trigger only. EDGAR answers 403 to GitHub-hosted runners no matter
+  # what User-Agent is sent — their IPs sit in cloud-datacenter ranges the SEC
+  # blocks — so running this on every pull request only produces a red X that
+  # says nothing about the code. Verified on 2026-07-26: a request carrying a
+  # valid contact email was refused on its first attempt.
+  #
+  # Kept because it is useful from a self-hosted runner on a normal
+  # connection. To check the live API otherwise, run the script locally.
+  live-smoke-test:
+    name: Live EDGAR smoke test (manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # --dry-run so no state file is written. A tiny limit keeps the
+      # request count and output small.
+      # EDGAR returns 403 unless the User-Agent carries a contact email, so a
+      # bare project name or URL is not enough. Override this with a
+      # repository secret named SEC_USER_AGENT to use a real address.
+      - name: Fetch real filings
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT ||
+            format('{0} CI {1}@users.noreply.github.com',
+                   github.repository, github.repository_owner) }}
+        run: python edgar_watcher.py --dry-run --first-run-limit 2
