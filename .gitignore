@@ -1,0 +1,10 @@
+# Run state — this is local bookkeeping, not source code. Keeping it out of
+# git means your machine and any other checkout track filings independently.
+state.json
+state.json.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
