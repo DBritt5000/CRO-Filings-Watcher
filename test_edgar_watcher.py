@@ -206,9 +206,9 @@ class TestEndToEnd(unittest.TestCase):
             w.main(["--state", str(state_path), "--dry-run"])
             self.assertFalse(state_path.exists())
 
-    def test_http_403_explains_the_user_agent_requirement(self):
-        # EDGAR answers 403 when the User-Agent carries no contact email.
-        # The digest should say so rather than just printing the code.
+    def test_http_403_explains_both_causes(self):
+        # A 403 means either a User-Agent with no contact email or a blocked
+        # IP. The digest should name both rather than just printing the code.
         def raise_403(cik, ua):
             raise urllib.error.HTTPError(
                 url="https://data.sec.gov/", code=403, msg="Forbidden",
@@ -222,8 +222,10 @@ class TestEndToEnd(unittest.TestCase):
                 exit_code = w.main(["--state", str(state_path)])
 
         self.assertEqual(exit_code, 1)  # fetch failures are reported as failure
-        self.assertIn("HTTP 403", buffer.getvalue())
-        self.assertIn("SEC_USER_AGENT", buffer.getvalue())
+        output = buffer.getvalue()
+        self.assertIn("HTTP 403", output)
+        self.assertIn("SEC_USER_AGENT", output)
+        self.assertIn("blocked this IP", output)
 
     def test_http_404_points_at_the_cik(self):
         def raise_404(cik, ua):

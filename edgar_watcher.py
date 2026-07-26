@@ -306,11 +306,12 @@ def main(argv: list[str] | None = None) -> int:
         except urllib.error.HTTPError as exc:
             message = f"HTTP {exc.code} from EDGAR"
             if exc.code == 403:
-                # By far the most common cause, and not obvious from the
-                # status code alone.
-                message += (" - EDGAR rejects requests whose User-Agent has no"
-                            " contact email. Set SEC_USER_AGENT, e.g."
-                            " 'Jane Doe jane@example.org'.")
+                # Two causes, neither obvious from the status code alone.
+                message += (" - either SEC_USER_AGENT has no contact email"
+                            " (set it to something like 'Jane Doe"
+                            " jane@example.org'), or EDGAR has blocked this"
+                            " IP. Cloud and datacenter addresses are often"
+                            " refused even with a valid User-Agent.")
             elif exc.code == 404:
                 message += f" - is CIK {cik} correct?"
             elif exc.code == 429:

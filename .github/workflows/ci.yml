@@ -31,12 +31,21 @@ jobs:
       - name: Check the script's help text works
         run: python edgar_watcher.py --help
 
-  # Informational only: actually calls EDGAR to confirm the live API still
-  # behaves the way the script expects. This talks to a third party, so it
-  # must never block a merge — continue-on-error keeps a red result advisory.
+  # Calls the real EDGAR API to confirm it still behaves the way the script
+  # expects.
+  #
+  # Manual trigger only. EDGAR answers 403 to GitHub-hosted runners no matter
+  # what User-Agent is sent — their IPs sit in cloud-datacenter ranges the SEC
+  # blocks — so running this on every pull request only produces a red X that
+  # says nothing about the code. Verified on 2026-07-26: a request carrying a
+  # valid contact email was refused on its first attempt.
+  #
+  # Kept because it is useful from a self-hosted runner on a normal
+  # connection. To check the live API otherwise, run the script locally.
   live-smoke-test:
-    name: Live EDGAR smoke test (advisory)
+    name: Live EDGAR smoke test (manual)
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4

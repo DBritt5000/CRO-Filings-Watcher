@@ -24,17 +24,21 @@ export SEC_USER_AGENT="Your Name your.email@example.com"
 
 (Or edit `DEFAULT_USER_AGENT` near the top of `edgar_watcher.py`.)
 
-**The email address is not optional.** EDGAR answers `HTTP 403` to requests
-whose `User-Agent` has no contact email — a project name or URL alone is
-rejected. This was confirmed against the live API: a CI run using
-`CRO-Filings-Watcher CI (https://github.com/...)` got 403 for all five
-companies. `Your Name you@example.com` works.
+The SEC's
+[developer guidance](https://www.sec.gov/os/webmaster-faq#developers) asks for
+a real name and email here, so include both.
+
+Note that a correct `User-Agent` is necessary but not always sufficient: EDGAR
+also blocks by IP. A CI run from a GitHub-hosted runner got `HTTP 403` for all
+five companies on its very first request while sending a valid contact email,
+which is consistent with the SEC blocking cloud-datacenter address ranges.
+From a normal home or office connection this isn't an issue.
 
 ## Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
-| `HTTP 403 from EDGAR` | `User-Agent` has no contact email. Set `SEC_USER_AGENT`. |
+| `HTTP 403 from EDGAR` | Either the `User-Agent` has no contact email (set `SEC_USER_AGENT`), or EDGAR has blocked your IP. Cloud and datacenter addresses are frequently blocked. |
 | `HTTP 404 from EDGAR` | That CIK doesn't exist — check `companies.json`. |
 | `HTTP 429 from EDGAR` | Rate limited. Wait a minute. |
 | Digest shows nothing new | Expected. Delete `state.json`, or use `--all`, to see recent filings again. |
@@ -83,11 +87,19 @@ Two jobs run on GitHub Actions:
 
 - **Tests** — the offline suite on Python 3.9, 3.11, and 3.13. No network, so
   it's fast and deterministic. This is the job that gates a merge.
-- **Live EDGAR smoke test** — actually calls the API with `--dry-run` to
-  confirm EDGAR still responds the way the script expects. It's marked
-  `continue-on-error`, so a bad day at the SEC (or a rate limit) shows up as
-  a warning rather than blocking a merge. Check it when the API might have
-  changed.
+- **Live EDGAR smoke test** — calls the real API with `--dry-run` to confirm
+  EDGAR still responds the way the script expects. **Manual trigger only**
+  (Actions tab → Run workflow). It does not run on pull requests, because
+  EDGAR returns 403 to GitHub's hosted runners regardless of `User-Agent` —
+  their IPs are in cloud-datacenter ranges the SEC blocks. The job is kept
+  for use from a self-hosted runner on a non-datacenter connection; from a
+  GitHub-hosted runner it is expected to fail.
+
+  To verify against the live API, the reliable route is your own machine:
+
+  ```sh
+  SEC_USER_AGENT="Your Name you@example.com" python3 edgar_watcher.py --dry-run
+  ```
 
 ## Adding a company
 
